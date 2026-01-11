@@ -40,7 +40,7 @@ jobs:
           pyinstaller --onefile --name esri-cli.exe cli.py
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: esri-cli-${{ runner.os }}
           path: |
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
