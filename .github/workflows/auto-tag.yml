@@ -61,7 +61,7 @@ jobs:
             patch=$((patch + 1))
           fi
           
-          next_version="v$major.$minor.$patch"
+          next_version="$major.$minor.$patch"
           echo "version=$next_version" >> $GITHUB_OUTPUT
 
       - name: Create tag
