@@ -1,8 +1,8 @@
 name: Release
 
 on:
-  release:
-    types: [created]
+  repository_dispatch:
+    types: [release-trigger]
 
 permissions:
   contents: write # Required to create releases and upload assets
@@ -31,17 +31,17 @@ jobs:
       - name: Build Binary (Linux)
         if: runner.os == 'Linux'
         run: |
-          pyinstaller --onefile --name esri-cli-linux cli.py
+          pyinstaller --onefile --name esri-cli-${{ github.event.client_payload.tag }}-x86_64 cli.py
 
       - name: Build Binary (macOS)
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --onefile --name esri-cli-macos cli.py
+          pyinstaller --onefile --name esri-cli-${{ github.event.client_payload.tag }}-arm64 cli.py
 
       - name: Build Binary (Windows)
         if: runner.os == 'Windows'
         run: |
-          pyinstaller --onefile --name esri-cli-windows.exe cli.py
+          pyinstaller --onefile --name esri-cli-${{ github.event.client_payload.tag }}-x86_64.exe cli.py
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -62,6 +62,7 @@ jobs:
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.client_payload.tag }}
           files: |
             artifacts/*/esri-cli*
           generate_release_notes: true
