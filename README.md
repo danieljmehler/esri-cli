@@ -10,14 +10,14 @@
 | src/esri\_client/\_\_init\_\_.py |        6 |        0 |    100% |           |
 | src/esri\_client/client.py       |       58 |       35 |     40% |44-45, 49-51, 55-69, 72-75, 78-81, 84-87, 90-93 |
 | src/esri\_client/folder.py       |        8 |        0 |    100% |           |
-| src/esri\_client/layer.py        |       30 |        5 |     83% |43, 54, 60, 64-65 |
+| src/esri\_client/layer.py        |       30 |        4 |     87% |54, 60, 64-65 |
 | src/esri\_client/service.py      |       12 |        1 |     92% |        20 |
 | src/esri\_client/services.py     |        9 |        0 |    100% |           |
 | tests/test\_cli.py               |      437 |        0 |    100% |           |
 | tests/test\_client.py            |       16 |        0 |    100% |           |
 | tests/test\_layer.py             |       19 |        0 |    100% |           |
 | tests/test\_services.py          |       10 |        0 |    100% |           |
-| **TOTAL**                        |  **915** |   **93** | **90%** |           |
+| **TOTAL**                        |  **915** |   **92** | **90%** |           |
 
 
 ## Setup coverage badge
