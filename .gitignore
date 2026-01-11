@@ -21,3 +21,6 @@ htmlcov/
 .env
 venv/
 env/
+
+# ESRI
+*.kml
