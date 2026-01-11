@@ -2,6 +2,7 @@
 import sys
 import json
 import argparse
+import logging
 from src.esri_client import EsriClient
 from requests.exceptions import RequestException, ConnectionError, Timeout, HTTPError
 
@@ -21,6 +22,7 @@ def add_common_args(parser):
     """
     parser.add_argument('--url', required=True, help='Base URL of the ArcGIS server')
     parser.add_argument('--output', help='Output file path')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
 
 def add_service_args(parser):
     """Add service-related arguments to a parser.
@@ -126,6 +128,12 @@ def main():
     
     args = parser.parse_args()
     
+    # Configure logging based on debug flag
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    else:
+        logging.basicConfig(level=logging.WARNING)
+    
     client = EsriClient(args.url)
     
     try:
@@ -225,7 +233,7 @@ def handle_layers_command(args, client):
         if service_info:
             full_path = f"{args.folder}/{args.service}/{service_info['type']}"
             service = client.get_service(full_path)
-            layer_list = sorted([{'id': layer.id, 'name': layer.name} for layer in service.layers], key=lambda x: x['id'])
+            layer_list = sorted([{'id': layer.id, 'name': layer.name} for layer in service.layers], key=lambda x: int(x['id']) if isinstance(x['id'], str) else x['id'])
             output_result(layer_list, args)
         else:
             print(f"Service {args.service} not found in folder {args.folder}")
@@ -235,7 +243,7 @@ def handle_layers_command(args, client):
         if service_info:
             full_path = f"{args.service}/{service_info['type']}"
             service = client.get_service(full_path)
-            layer_list = sorted([{'id': layer.id, 'name': layer.name} for layer in service.layers], key=lambda x: x['id'])
+            layer_list = sorted([{'id': layer.id, 'name': layer.name} for layer in service.layers], key=lambda x: int(x['id']) if isinstance(x['id'], str) else x['id'])
             output_result(layer_list, args)
         else:
             print(f"Service {args.service} not found")

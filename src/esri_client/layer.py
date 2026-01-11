@@ -34,6 +34,12 @@ class Layer:
         # Set defaults
         params = {'where': where, 'f': query_format, 'resultRecordCount': 100, **kwargs}
         
+        # Convert string parameters to integers where needed
+        if 'resultRecordCount' in params and isinstance(params['resultRecordCount'], str):
+            params['resultRecordCount'] = int(params['resultRecordCount'])
+        if 'resultOffset' in params and isinstance(params['resultOffset'], str):
+            params['resultOffset'] = int(params['resultOffset'])
+        
         try:
             # Only paginate if resultOffset is not provided by the user
             if 'resultOffset' not in kwargs:
