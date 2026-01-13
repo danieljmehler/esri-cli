@@ -2,6 +2,8 @@
 import sys
 import json
 import argparse
+import logging
+import html
 from src.esri_client import EsriClient
 from requests.exceptions import RequestException, ConnectionError, Timeout, HTTPError
 
@@ -13,6 +15,8 @@ DEFAULT_UNITS = 'esriSRUnit_Foot'
 DEFAULT_ENCODING = 'esriDefault'
 DEFAULT_FORMAT = 'pjson'
 
+logger = logging.getLogger(__name__)
+
 def add_common_args(parser):
     """Add common arguments to a parser.
     
@@ -21,6 +25,8 @@ def add_common_args(parser):
     """
     parser.add_argument('--url', required=True, help='Base URL of the ArcGIS server')
     parser.add_argument('--output', help='Output file path')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--progress', action='store_true', help='Show progress during queries')
 
 def add_service_args(parser):
     """Add service-related arguments to a parser.
@@ -122,9 +128,15 @@ def main():
     query_parser.add_argument('--rangeValues', help='Range values')
     query_parser.add_argument('--quantizationParameters', help='Quantization parameters')
     query_parser.add_argument('--featureEncoding', default=DEFAULT_ENCODING, help='Feature encoding')
-    query_parser.add_argument('--format', default=DEFAULT_FORMAT, help='Output format (pjson, geojson, or kml)')
+    query_parser.add_argument('--format', default=DEFAULT_FORMAT, help='Output format (pjson, geojson, kml, or kmz)')
     
     args = parser.parse_args()
+    
+    # Configure logging based on debug flag
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    else:
+        logging.basicConfig(level=logging.WARNING)
     
     client = EsriClient(args.url)
     
@@ -225,7 +237,7 @@ def handle_layers_command(args, client):
         if service_info:
             full_path = f"{args.folder}/{args.service}/{service_info['type']}"
             service = client.get_service(full_path)
-            layer_list = sorted([{'id': layer.id, 'name': layer.name} for layer in service.layers], key=lambda x: x['id'])
+            layer_list = sorted([{'id': layer.id, 'name': layer.name} for layer in service.layers], key=lambda x: int(x['id']) if isinstance(x['id'], str) else x['id'])
             output_result(layer_list, args)
         else:
             print(f"Service {args.service} not found in folder {args.folder}")
@@ -235,7 +247,7 @@ def handle_layers_command(args, client):
         if service_info:
             full_path = f"{args.service}/{service_info['type']}"
             service = client.get_service(full_path)
-            layer_list = sorted([{'id': layer.id, 'name': layer.name} for layer in service.layers], key=lambda x: x['id'])
+            layer_list = sorted([{'id': layer.id, 'name': layer.name} for layer in service.layers], key=lambda x: int(x['id']) if isinstance(x['id'], str) else x['id'])
             output_result(layer_list, args)
         else:
             print(f"Service {args.service} not found")
@@ -335,14 +347,17 @@ def handle_query_command(args, client):
         sys.exit(1)
     
     if args.folder:
-        layer_obj = get_layer_from_folder(args, client)
+        layer_obj, service_obj = get_layer_from_folder(args, client)
     else:
-        layer_obj = get_layer_from_root(args, client)
+        layer_obj, service_obj = get_layer_from_root(args, client)
     
     if layer_obj:
-        query_params = {k: v for k, v in vars(args).items() if k not in ['command', 'url', 'folder', 'service', 'id', 'name', 'output'] and v is not None}
-        results = layer_obj.query(**query_params)
-        output_result(results, args)
+        query_params = {k: v for k, v in vars(args).items() if k not in ['command', 'url', 'folder', 'service', 'id', 'name', 'output', 'debug', 'progress'] and v is not None}
+        results = layer_obj.query(progress=args.progress, **query_params)
+        
+        # Get display field from layer if available
+        display_field = layer_obj.data.get('displayField') if layer_obj else None
+        output_result(results, args, display_field)
 
 def get_layer_from_folder(args, client):
     """Get layer object from a folder service.
@@ -352,7 +367,7 @@ def get_layer_from_folder(args, client):
         client: EsriClient instance
         
     Returns:
-        Layer object or None
+        Tuple of (Layer object, Service object) or (None, None)
     """
     folder = client.get_folder(args.folder)
     service_info = next((s for s in folder.data.get('services', []) if s['name'].replace(f"{args.folder}/", "") == args.service), None)
@@ -361,13 +376,13 @@ def get_layer_from_folder(args, client):
         service = client.get_service(full_path)
         layer = find_layer_in_service(service, args)
         if layer:
-            return client.get_layer(full_path, layer.id)
+            return client.get_layer(full_path, layer.id), service
         else:
             identifier = args.id if args.id is not None else args.name
             print(f"Layer {identifier} not found in service {args.service}")
     else:
         print(f"Service {args.service} not found in folder {args.folder}")
-    return None
+    return None, None
 
 def get_layer_from_root(args, client):
     """Get layer object from a root service.
@@ -377,7 +392,7 @@ def get_layer_from_root(args, client):
         client: EsriClient instance
         
     Returns:
-        Layer object or None
+        Tuple of (Layer object, Service object) or (None, None)
     """
     services = client.get_services()
     service_info = next((s for s in services.data.get('services', []) if s['name'] == args.service), None)
@@ -386,13 +401,13 @@ def get_layer_from_root(args, client):
         service = client.get_service(full_path)
         layer = find_layer_in_service(service, args)
         if layer:
-            return client.get_layer(full_path, layer.id)
+            return client.get_layer(full_path, layer.id), service
         else:
             identifier = args.id if args.id is not None else args.name
             print(f"Layer {identifier} not found in service {args.service}")
     else:
         print(f"Service {args.service} not found")
-    return None
+    return None, None
 
 def find_layer_in_service(service, args):
     """Find a layer in a service by ID or name.
@@ -409,20 +424,39 @@ def find_layer_in_service(service, args):
     else:
         return next((l for l in service.layers if l.name == args.name), None)
 
-def output_result(data, args):
+def output_result(data, args, display_field=None):
     """Output result data to console or file.
     
     Args:
         data: Data to output
         args: Parsed command line arguments
+        display_field: Display field name from service
     """
-    if hasattr(args, 'format') and args.format == 'kml' and isinstance(data, dict) and 'features' in data:
-        kml_content = convert_json_to_kml(data)
-        if args.output:
-            with open(args.output, 'w') as f:
-                f.write(kml_content)
+    # logger.debug(f"Outputting results for {len(data['features'])} features")
+    if hasattr(args, 'format') and args.format in ['kml', 'kmz'] and isinstance(data, dict) and 'features' in data:
+        # logger.debug("Outputting as KML")
+        kml_content = convert_json_to_kml(data, display_field)
+        
+        # Count vertices and split if necessary
+        vertex_count = count_kml_vertices(kml_content)
+        if vertex_count > 200000:
+            kml_files = split_kml_files(kml_content, data, args, vertex_count, display_field)
         else:
-            print(kml_content)
+            if args.output:
+                import os
+                base_name = args.output.rsplit('.', 1)[0]
+                os.makedirs(base_name, exist_ok=True)
+                filename = os.path.join(base_name, os.path.basename(args.output).replace('.kmz', '.kml'))
+                with open(filename, 'w') as f:
+                    f.write(kml_content)
+                kml_files = [filename]
+            else:
+                print(kml_content)
+                return
+        
+        # Create KMZ if requested
+        if args.format == 'kmz':
+            create_kmz(kml_files, args)
         return
     
     json_str = json.dumps(data, indent=2)
@@ -432,8 +466,9 @@ def output_result(data, args):
     else:
         print(json_str)
 
-def convert_json_to_kml(json_data):
+def convert_json_to_kml(json_data, display_field=None):
     features = json_data.get('features', [])
+    # logger.debug(f"Converting {len(features)} features to KML")
     
     kml_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -442,38 +477,51 @@ def convert_json_to_kml(json_data):
     ]
     
     for feature in features:
-        placemark = create_kml_placemark(feature)
+        # logger.debug(f"Processing feature: {feature.get('id')}")
+        placemark = create_kml_placemark(feature, display_field)
         if placemark:
             kml_parts.extend(placemark)
     
     kml_parts.extend(['</Document>', '</kml>'])
     return '\n'.join(kml_parts)
 
-def create_kml_placemark(feature):
+def create_kml_placemark(feature, display_field=None):
+    # logger.debug(f"Creating KML placemark for feature: {feature.get('id')}")
     geom = feature.get('geometry', {})
+    if not geom:
+        # logger.debug("Feature has no geometry")
+        return None
     props = feature.get('properties', {})
     
-    name = get_feature_name(props)
+    name = get_feature_name(props, display_field)
+    # logger.debug(f"Feature name is {name}")
     description = create_feature_description(props)
+    # logger.debug(f"Feature description is {description}")
     
     if geom.get('type') == 'Point':
+        # logger.debug("Feature is a Point")
         return create_point_placemark(name, description, geom)
     elif geom.get('type') == 'Polygon':
+        # logger.debug("Feature is a Polygon")
         return create_polygon_placemark(name, description, geom)
     
     return None
 
-def get_feature_name(props):
+def get_feature_name(props, display_field=None):
+    if display_field and display_field in props:
+        return html.escape(str(props[display_field])) if props[display_field] else ''
     for key, value in props.items():
         if key.lower() == 'name':
-            return value
+            return html.escape(str(value)) if value else ''
     return ''
 
 def create_feature_description(props):
     table_rows = []
     for key, value in props.items():
         if key.lower() != 'name':
-            table_rows.append(f'<tr><td>{key}</td><td>{value}</td></tr>')
+            escaped_key = html.escape(str(key))
+            escaped_value = html.escape(str(value)) if value is not None else ''
+            table_rows.append(f'<tr><td>{escaped_key}</td><td>{escaped_value}</td></tr>')
     
     return f'<![CDATA[<table border="1"><tr><th>Attribute</th><th>Value</th></tr>{"".join(table_rows)}</table>]]>'
 
@@ -509,5 +557,138 @@ def create_polygon_placemark(name, description, geom):
             '</Placemark>'
         ]
     return None
+
+def count_kml_vertices(kml_content):
+    """Count vertices in KML content.
+    
+    Args:
+        kml_content: KML content string
+        
+    Returns:
+        int: Number of vertices
+    """
+    import re
+    coord_pattern = r'<coordinates>(.*?)</coordinates>'
+    coord_blocks = re.findall(coord_pattern, kml_content, re.DOTALL)
+    
+    total_vertices = 0
+    for block in coord_blocks:
+        coords = [c.strip() for c in block.split() if c.strip()]
+        total_vertices += len(coords)
+    
+    return total_vertices
+
+def split_kml_files(kml_content, data, args, total_vertices, display_field=None):
+    """Split KML into multiple files if vertex count exceeds limit.
+    
+    Args:
+        kml_content: Original KML content
+        data: Original JSON data
+        args: Command line arguments
+        total_vertices: Total vertex count
+        display_field: Display field name from service
+        
+    Returns:
+        List of created KML file paths
+    """
+    import os
+    features = data.get('features', [])
+    if not features:
+        return []
+    
+    base_name = args.output.rsplit('.', 1)[0] if args.output else 'output'
+    os.makedirs(base_name, exist_ok=True)
+    
+    current_features = []
+    current_vertices = 0
+    file_count = 1
+    kml_files = []
+    
+    for feature in features:
+        # Convert single feature to KML to count its vertices
+        feature_kml = convert_json_to_kml({'features': [feature]}, display_field)
+        feature_vertices = count_kml_vertices(feature_kml)
+        
+        # If adding this feature would exceed limit, save current batch
+        if current_vertices + feature_vertices > 200000 and current_features:
+            chunk_data = {'features': current_features}
+            chunk_kml = convert_json_to_kml(chunk_data, display_field)
+            
+            filename = os.path.join(base_name, f"{os.path.basename(base_name)}_part{file_count}.kml")
+            with open(filename, 'w') as f:
+                f.write(chunk_kml)
+            kml_files.append(filename)
+            
+            print(f"Created {filename} with {len(current_features)} features and {current_vertices} vertices")
+            
+            current_features = []
+            current_vertices = 0
+            file_count += 1
+        
+        current_features.append(feature)
+        current_vertices += feature_vertices
+    
+    # Save remaining features
+    if current_features:
+        chunk_data = {'features': current_features}
+        chunk_kml = convert_json_to_kml(chunk_data, display_field)
+        
+        filename = os.path.join(base_name, f"{os.path.basename(base_name)}_part{file_count}.kml")
+        with open(filename, 'w') as f:
+            f.write(chunk_kml)
+        kml_files.append(filename)
+        
+        print(f"Created {filename} with {len(current_features)} features and {current_vertices} vertices")
+    
+    return kml_files
+
+def create_kmz(kml_files, args):
+    """Create KMZ file with doc.kml containing NetworkLinks to KML files.
+    
+    Args:
+        kml_files: List of KML file paths
+        args: Command line arguments
+    """
+    import os
+    import zipfile
+    
+    base_name = args.output.rsplit('.', 1)[0] if args.output else 'output'
+    
+    # Create doc.kml with NetworkLinks
+    doc_kml_content = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<kml xmlns="http://www.opengis.net/kml/2.2">',
+        '<Document>'
+    ]
+    
+    for kml_file in kml_files:
+        filename = os.path.basename(kml_file)
+        doc_kml_content.extend([
+            '<NetworkLink>',
+            f'<name>{filename}</name>',
+            '<Link>',
+            f'<href>./{filename}</href>',
+            '</Link>',
+            '</NetworkLink>'
+        ])
+    
+    doc_kml_content.extend(['</Document>', '</kml>'])
+    
+    # Write doc.kml
+    doc_kml_path = os.path.join(base_name, 'doc.kml')
+    with open(doc_kml_path, 'w') as f:
+        f.write('\n'.join(doc_kml_content))
+    
+    # Create KMZ file
+    kmz_filename = args.output.replace('.kml', '.kmz') if args.output else 'output.kmz'
+    with zipfile.ZipFile(kmz_filename, 'w', zipfile.ZIP_DEFLATED) as kmz:
+        # Add doc.kml
+        kmz.write(doc_kml_path, 'doc.kml')
+        # Add all KML files
+        for kml_file in kml_files:
+            kmz.write(kml_file, os.path.basename(kml_file))
+    
+    print(f"Created KMZ file: {kmz_filename}")
+
 if __name__ == '__main__':
     main()

@@ -94,15 +94,18 @@ class TestCLI:
         
         mock_service = Mock()
         mock_service.layers = [Mock(id=0, name='layer0')]
+        mock_service.data = {'displayField': 'NAME'}
         mock_client.get_service.return_value = mock_service
         
         mock_layer = Mock()
-        mock_layer.query.return_value = {'features': []}
+        mock_layer.data = {'displayField': 'NAME'}
+        mock_layer.query.side_effect = lambda **kwargs: {'features': []}
         mock_client.get_layer.return_value = mock_layer
         
         with patch('sys.stdout', new_callable=StringIO) as mock_stdout:
             main()
-            
+        
+        # The print statement should be in stderr, not captured
         output = json.loads(mock_stdout.getvalue())
         assert output == {'features': []}
 
@@ -118,10 +121,12 @@ class TestCLI:
         
         mock_service = Mock()
         mock_service.layers = [Mock(id=0, name='layer0')]
+        mock_service.data = {'displayField': 'NAME'}
         mock_client.get_service.return_value = mock_service
         
         mock_layer = Mock()
-        mock_layer.query.return_value = {'features': []}
+        mock_layer.data = {'displayField': 'NAME'}
+        mock_layer.query.side_effect = lambda **kwargs: {'features': []}
         mock_client.get_layer.return_value = mock_layer
         
         with patch('builtins.open', mock_open()) as mock_file:
@@ -141,10 +146,12 @@ class TestCLI:
         
         mock_service = Mock()
         mock_service.layers = [Mock(id=0, name='layer0')]
+        mock_service.data = {'displayField': 'NAME'}
         mock_client.get_service.return_value = mock_service
         
         mock_layer = Mock()
-        mock_layer.query.return_value = {
+        mock_layer.data = {'displayField': 'NAME'}
+        mock_layer.query.side_effect = lambda **kwargs: {
             'features': [{
                 'geometry': {'type': 'Polygon', 'coordinates': [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
                 'properties': {'NAME': 'Test Polygon', 'attr1': 'value1'}
@@ -172,10 +179,12 @@ class TestCLI:
         
         mock_service = Mock()
         mock_service.layers = [Mock(id=0, name='layer0')]
+        mock_service.data = {'displayField': 'NAME'}
         mock_client.get_service.return_value = mock_service
         
         mock_layer = Mock()
-        mock_layer.query.return_value = {'type': 'FeatureCollection', 'features': []}
+        mock_layer.data = {'displayField': 'NAME'}
+        mock_layer.query.side_effect = lambda **kwargs: {'type': 'FeatureCollection', 'features': []}
         mock_client.get_layer.return_value = mock_layer
         
         with patch('sys.stdout', new_callable=StringIO) as mock_stdout:
@@ -196,10 +205,12 @@ class TestCLI:
         
         mock_service = Mock()
         mock_service.layers = [Mock(id=0, name='layer0')]
+        mock_service.data = {'displayField': 'Name'}
         mock_client.get_service.return_value = mock_service
         
         mock_layer = Mock()
-        mock_layer.query.return_value = {
+        mock_layer.data = {'displayField': 'Name'}
+        mock_layer.query.side_effect = lambda **kwargs: {
             'features': [{
                 'geometry': {'type': 'Point', 'coordinates': [-74.0, 40.0]},
                 'properties': {'Name': 'Test Point', 'attr1': 'value1'}
@@ -230,10 +241,12 @@ class TestCLI:
         
         mock_service = Mock()
         mock_service.layers = [Mock(id=0, name='layer0')]
+        mock_service.data = {'displayField': 'NAME'}
         mock_client.get_service.return_value = mock_service
         
         mock_layer = Mock()
-        mock_layer.query.return_value = {'features': []}
+        mock_layer.data = {'displayField': 'NAME'}
+        mock_layer.query.side_effect = lambda **kwargs: {'features': []}
         mock_client.get_layer.return_value = mock_layer
         
         with patch('sys.stdout', new_callable=StringIO) as mock_stdout:
@@ -394,7 +407,7 @@ class TestCLI:
         args.name = None
         
         result = get_layer_from_folder(args, mock_client)
-        assert result == mock_layer_obj
+        assert result == (mock_layer_obj, mock_service)
 
     @patch('cli.EsriClient')
     def test_get_layer_from_folder_service_not_found(self, mock_client_class):
@@ -416,7 +429,7 @@ class TestCLI:
         with patch('sys.stdout', new_callable=StringIO) as mock_stdout:
             result = get_layer_from_folder(args, mock_client)
             
-        assert result is None
+        assert result == (None, None)
         assert 'Service nonexistent not found in folder test_folder' in mock_stdout.getvalue()
 
     @patch('cli.EsriClient')

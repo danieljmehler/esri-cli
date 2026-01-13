@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from src.esri_client import Layer
 
 
@@ -16,11 +16,28 @@ class TestLayer:
     def test_query(self):
         mock_client = Mock()
         mock_client.base_url = 'https://example.com'
-        mock_client._get_json.return_value = {'features': []}
+        # Mock both count query and actual query
+        mock_client._get_json.side_effect = [
+            {'count': 0},  # Count query response
+            {'features': []}  # Actual query response
+        ]
         
         layer = Layer({}, mock_client, 'service/path', 0)
-        result = layer.query(where="test=1")
+        with patch('builtins.print'):
+            result = layer.query(where="test=1")
         
+        # Should be called twice: once for count, once for data
+        assert mock_client._get_json.call_count == 2
+        
+        # Check count query call
+        count_call = mock_client._get_json.call_args_list[0]
         expected_url = 'https://example.com/rest/services/service/path/0/query'
-        expected_params = {'where': 'test=1', 'f': 'pjson', 'resultRecordCount': 100, 'resultOffset': 0}
-        mock_client._get_json.assert_called_once_with(expected_url, expected_params)
+        expected_count_params = {'where': 'test=1', 'f': 'pjson', 'resultRecordCount': 100, 'returnCountOnly': 'true'}
+        assert count_call[0][0] == expected_url
+        assert count_call[0][1] == expected_count_params
+        
+        # Check data query call
+        data_call = mock_client._get_json.call_args_list[1]
+        expected_data_params = {'where': 'test=1', 'f': 'pjson', 'resultRecordCount': 100, 'resultOffset': 0}
+        assert data_call[0][0] == expected_url
+        assert data_call[0][1] == expected_data_params
