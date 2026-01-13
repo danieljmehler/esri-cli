@@ -1,8 +1,11 @@
+import logging
 from typing import Dict, TYPE_CHECKING
 from requests.exceptions import RequestException
 
 if TYPE_CHECKING:
     from .client import EsriClient
+
+logger = logging.getLogger(__name__)
 
 class Layer:
     def __init__(self, data: Dict, client: 'EsriClient', service_path: str, layer_id: int):
@@ -51,10 +54,13 @@ class Layer:
                     response = self.client._get_json(url, params)
                     
                     features = response.get('features', [])
+                    logger.debug(f"Query returned {len(features)} features")
                     all_features.extend(features)
+                    logger.debug(f"Total features: {len(all_features)}")
                     
                     # Break if we got fewer records than requested
                     if len(features) < params['resultRecordCount']:
+                        logger.debug("Reached last page")
                         break
                         
                     offset += params['resultRecordCount']
