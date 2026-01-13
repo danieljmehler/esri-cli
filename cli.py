@@ -3,6 +3,7 @@ import sys
 import json
 import argparse
 import logging
+import html
 from src.esri_client import EsriClient
 from requests.exceptions import RequestException, ConnectionError, Timeout, HTTPError
 
@@ -474,14 +475,16 @@ def create_kml_placemark(feature):
 def get_feature_name(props):
     for key, value in props.items():
         if key.lower() == 'name':
-            return value
+            return html.escape(str(value)) if value else ''
     return ''
 
 def create_feature_description(props):
     table_rows = []
     for key, value in props.items():
         if key.lower() != 'name':
-            table_rows.append(f'<tr><td>{key}</td><td>{value}</td></tr>')
+            escaped_key = html.escape(str(key))
+            escaped_value = html.escape(str(value)) if value is not None else ''
+            table_rows.append(f'<tr><td>{escaped_key}</td><td>{escaped_value}</td></tr>')
     
     return f'<![CDATA[<table border="1"><tr><th>Attribute</th><th>Value</th></tr>{"".join(table_rows)}</table>]]>'
 
