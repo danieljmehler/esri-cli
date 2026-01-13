@@ -15,6 +15,8 @@ DEFAULT_UNITS = 'esriSRUnit_Foot'
 DEFAULT_ENCODING = 'esriDefault'
 DEFAULT_FORMAT = 'pjson'
 
+logger = logging.getLogger(__name__)
+
 def add_common_args(parser):
     """Add common arguments to a parser.
     
@@ -425,13 +427,21 @@ def output_result(data, args):
         data: Data to output
         args: Parsed command line arguments
     """
+    # logger.debug(f"Outputting results for {len(data['features'])} features")
     if hasattr(args, 'format') and args.format == 'kml' and isinstance(data, dict) and 'features' in data:
+        # logger.debug("Outputting as KML")
         kml_content = convert_json_to_kml(data)
-        if args.output:
-            with open(args.output, 'w') as f:
-                f.write(kml_content)
+        
+        # Count vertices and split if necessary
+        vertex_count = count_kml_vertices(kml_content)
+        if vertex_count > 250000:
+            split_kml_files(kml_content, data, args, vertex_count)
         else:
-            print(kml_content)
+            if args.output:
+                with open(args.output, 'w') as f:
+                    f.write(kml_content)
+            else:
+                print(kml_content)
         return
     
     json_str = json.dumps(data, indent=2)
@@ -443,6 +453,7 @@ def output_result(data, args):
 
 def convert_json_to_kml(json_data):
     features = json_data.get('features', [])
+    # logger.debug(f"Converting {len(features)} features to KML")
     
     kml_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -451,6 +462,7 @@ def convert_json_to_kml(json_data):
     ]
     
     for feature in features:
+        # logger.debug(f"Processing feature: {feature.get('id')}")
         placemark = create_kml_placemark(feature)
         if placemark:
             kml_parts.extend(placemark)
@@ -459,15 +471,23 @@ def convert_json_to_kml(json_data):
     return '\n'.join(kml_parts)
 
 def create_kml_placemark(feature):
+    # logger.debug(f"Creating KML placemark for feature: {feature.get('id')}")
     geom = feature.get('geometry', {})
+    if not geom:
+        # logger.debug("Feature has no geometry")
+        return None
     props = feature.get('properties', {})
     
     name = get_feature_name(props)
+    # logger.debug(f"Feature name is {name}")
     description = create_feature_description(props)
+    # logger.debug(f"Feature description is {description}")
     
     if geom.get('type') == 'Point':
+        # logger.debug("Feature is a Point")
         return create_point_placemark(name, description, geom)
     elif geom.get('type') == 'Polygon':
+        # logger.debug("Feature is a Polygon")
         return create_polygon_placemark(name, description, geom)
     
     return None
@@ -520,5 +540,56 @@ def create_polygon_placemark(name, description, geom):
             '</Placemark>'
         ]
     return None
+
+def count_kml_vertices(kml_content):
+    """Count vertices in KML content.
+    
+    Args:
+        kml_content: KML content string
+        
+    Returns:
+        int: Number of vertices
+    """
+    import re
+    coord_pattern = r'<coordinates>(.*?)</coordinates>'
+    coord_blocks = re.findall(coord_pattern, kml_content, re.DOTALL)
+    
+    total_vertices = 0
+    for block in coord_blocks:
+        coords = [c.strip() for c in block.split() if c.strip()]
+        total_vertices += len(coords)
+    
+    return total_vertices
+
+def split_kml_files(kml_content, data, args, total_vertices):
+    """Split KML into multiple files if vertex count exceeds limit.
+    
+    Args:
+        kml_content: Original KML content
+        data: Original JSON data
+        args: Command line arguments
+        total_vertices: Total vertex count
+    """
+    features = data.get('features', [])
+    if not features:
+        return
+    
+    # Calculate features per file to stay under 200k vertices
+    features_per_file = max(1, int(len(features) * 200000 / total_vertices))
+    
+    base_name = args.output.rsplit('.', 1)[0] if args.output else 'output'
+    
+    for i in range(0, len(features), features_per_file):
+        chunk_features = features[i:i + features_per_file]
+        chunk_data = {'features': chunk_features}
+        chunk_kml = convert_json_to_kml(chunk_data)
+        
+        filename = f"{base_name}_part{i//features_per_file + 1}.kml"
+        with open(filename, 'w') as f:
+            f.write(chunk_kml)
+        
+        chunk_vertices = count_kml_vertices(chunk_kml)
+        print(f"Created {filename} with {len(chunk_features)} features and {chunk_vertices} vertices")
+
 if __name__ == '__main__':
     main()
