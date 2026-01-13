@@ -71,7 +71,11 @@ class EsriClient:
                 elif response.status_code == 403:
                     raise HTTPError(f"Access forbidden: {url}")
                 elif response.status_code >= 500:
-                    raise HTTPError(f"Server error ({response.status_code}): {url}")
+                    if attempt < max_retries - 1:
+                        logger.debug(f"Server error {response.status_code}, retrying: {e}")
+                        continue
+                    else:
+                        raise HTTPError(f"Server error ({response.status_code}): {url}")
                 else:
                     raise HTTPError(f"HTTP error ({response.status_code}): {url}")
             except RequestException as e:
