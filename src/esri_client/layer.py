@@ -15,7 +15,7 @@ class Layer:
         self.id = layer_id
         self.name = data.get('name', '')
 
-    def query(self, where: str = "1=1", format: str = "pjson", **kwargs) -> Dict:
+    def query(self, where: str = "1=1", format: str = "pjson", progress: bool = False, **kwargs) -> Dict:
         """Query the layer with error handling.
         
         Args:
@@ -31,8 +31,8 @@ class Layer:
         """
         url = f"{self.client.base_url}/rest/services/{self.service_path}/{self.id}/query"
         
-        # Handle KML format by querying with geojson
-        query_format = 'geojson' if format == 'kml' else format
+        # Handle KML/KMZ format by querying with geojson
+        query_format = 'geojson' if format in ['kml', 'kmz'] else format
         
         # Set defaults
         params = {'where': where, 'f': query_format, 'resultRecordCount': 100, **kwargs}
@@ -44,6 +44,13 @@ class Layer:
             params['resultOffset'] = int(params['resultOffset'])
         
         try:
+            # Get total count first
+            count_params = params.copy()
+            count_params['returnCountOnly'] = 'true'
+            count_response = self.client._get_json(url, count_params)
+            total_count = count_response.get('count', 0)
+            print(f"Total features: {total_count}")
+            
             # Only paginate if resultOffset is not provided by the user
             if 'resultOffset' not in kwargs:
                 all_features = []
@@ -56,6 +63,11 @@ class Layer:
                     features = response.get('features', [])
                     logger.debug(f"Query returned {len(features)} features")
                     all_features.extend(features)
+                    
+                    if progress:
+                        percent = (len(all_features) / total_count) * 100 if total_count > 0 else 0
+                        print(f"Progress: {len(all_features)}/{total_count} ({percent:.1f}%)")
+                    
                     logger.debug(f"Total features: {len(all_features)}")
                     
                     # Break if we got fewer records than requested
