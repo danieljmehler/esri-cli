@@ -434,11 +434,15 @@ def output_result(data, args):
         
         # Count vertices and split if necessary
         vertex_count = count_kml_vertices(kml_content)
-        if vertex_count > 250000:
+        if vertex_count > 200000:
             split_kml_files(kml_content, data, args, vertex_count)
         else:
             if args.output:
-                with open(args.output, 'w') as f:
+                import os
+                base_name = args.output.rsplit('.', 1)[0]
+                os.makedirs(base_name, exist_ok=True)
+                filename = os.path.join(base_name, os.path.basename(args.output))
+                with open(filename, 'w') as f:
                     f.write(kml_content)
             else:
                 print(kml_content)
@@ -570,26 +574,51 @@ def split_kml_files(kml_content, data, args, total_vertices):
         args: Command line arguments
         total_vertices: Total vertex count
     """
+    import os
     features = data.get('features', [])
     if not features:
         return
     
-    # Calculate features per file to stay under 200k vertices
-    features_per_file = max(1, int(len(features) * 200000 / total_vertices))
-    
     base_name = args.output.rsplit('.', 1)[0] if args.output else 'output'
+    os.makedirs(base_name, exist_ok=True)
     
-    for i in range(0, len(features), features_per_file):
-        chunk_features = features[i:i + features_per_file]
-        chunk_data = {'features': chunk_features}
+    current_features = []
+    current_vertices = 0
+    file_count = 1
+    
+    for feature in features:
+        # Convert single feature to KML to count its vertices
+        feature_kml = convert_json_to_kml({'features': [feature]})
+        feature_vertices = count_kml_vertices(feature_kml)
+        
+        # If adding this feature would exceed limit, save current batch
+        if current_vertices + feature_vertices > 200000 and current_features:
+            chunk_data = {'features': current_features}
+            chunk_kml = convert_json_to_kml(chunk_data)
+            
+            filename = os.path.join(base_name, f"{os.path.basename(base_name)}_part{file_count}.kml")
+            with open(filename, 'w') as f:
+                f.write(chunk_kml)
+            
+            print(f"Created {filename} with {len(current_features)} features and {current_vertices} vertices")
+            
+            current_features = []
+            current_vertices = 0
+            file_count += 1
+        
+        current_features.append(feature)
+        current_vertices += feature_vertices
+    
+    # Save remaining features
+    if current_features:
+        chunk_data = {'features': current_features}
         chunk_kml = convert_json_to_kml(chunk_data)
         
-        filename = f"{base_name}_part{i//features_per_file + 1}.kml"
+        filename = os.path.join(base_name, f"{os.path.basename(base_name)}_part{file_count}.kml")
         with open(filename, 'w') as f:
             f.write(chunk_kml)
         
-        chunk_vertices = count_kml_vertices(chunk_kml)
-        print(f"Created {filename} with {len(chunk_features)} features and {chunk_vertices} vertices")
+        print(f"Created {filename} with {len(current_features)} features and {current_vertices} vertices")
 
 if __name__ == '__main__':
     main()
